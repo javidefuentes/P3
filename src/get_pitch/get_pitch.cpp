@@ -11,7 +11,7 @@
 #include "docopt.h"
 
 #define FRAME_LEN   0.030 /* 30 ms. */
-#define FRAME_SHIFT 0.015 /* 15 ms. */
+#define FRAME_SHIFT 0.015 /* 10 ms. */
 
 using namespace std;
 using namespace upc;
@@ -25,6 +25,10 @@ Usage:
     get_pitch --version
 
 Options:
+    -p FLOAT, --pot=FLOAT       Umbral para la potencia [default: -23.9]
+    -1 FLOAT, --r1norm=FLOAT    Umbral para r1norm [default: 0.824]
+    -m FLOAT, --rmaxnorm=FLOAT  Umbral para rmaxnorm [default: 0.358]
+    -x FLOAT, --center_clip=FLOAT      Umbral para center clipping [default: 0.0001]
     -h, --help  Show this screen
     --version   Show the version of the project
 
@@ -39,6 +43,9 @@ int main(int argc, const char *argv[]) {
 	/// \TODO 
 	///  Modify the program syntax and the call to **docopt()** in order to
 	///  add options and arguments to the program.
+  /// \DONE
+  ///  Se ha añadido el umbral para la potencia, la autocorrelación1 normalizada, la autocorrelación máxima normalizada y
+  ///   y el center clipping (center_clip)
     std::map<std::string, docopt::value> args = docopt::docopt(USAGE,
         {argv + 1, argv + argc},	// array of arguments, without the program name
         true,    // show help if requested
@@ -46,6 +53,10 @@ int main(int argc, const char *argv[]) {
 
 	std::string input_wav = args["<input-wav>"].asString();
 	std::string output_txt = args["<output-txt>"].asString();
+  float pot = stof(args["--pot"].asString());
+  float r1norm = stof(args["--r1norm"].asString());
+  float rmaxnorm = stof(args["--rmaxnorm"].asString());
+  float center_clip = stof(args["--center_clip"].asString());
 
   // Read input sound file
   unsigned int rate;
@@ -59,12 +70,27 @@ int main(int argc, const char *argv[]) {
   int n_shift = rate * FRAME_SHIFT;
 
   // Define analyzer
-  PitchAnalyzer analyzer(n_len, rate, PitchAnalyzer::HAMMING, 50, 500);
-
+  PitchAnalyzer analyzer(n_len, rate, pot, r1norm, rmaxnorm, PitchAnalyzer::HAMMING, 50, 500);
   /// \TODO
   /// Preprocess the input signal in order to ease pitch estimation. For instance,
   /// central-clipping or low pass filtering may be used.
+  /// \DONE
+  /// Hemos usado un center-clipping con un offset
   
+  for (unsigned int i = 0; i < x.size(); i++)
+  {
+    if (abs(x[i]) < center_clip)
+      x[i] = 0;
+    else if ((x[i] < -1 * center_clip))
+    {
+      if (x[i] > 0) //Añadimos el offset
+        x[i] = x[i] - center_clip;
+      else
+        x[i] = x[i] + center_clip;
+    }
+  }
+
+
   // Iterate for each frame and save values in f0 vector
   vector<float>::iterator iX;
   vector<float> f0;
@@ -76,6 +102,16 @@ int main(int argc, const char *argv[]) {
   /// \TODO
   /// Postprocess the estimation in order to supress errors. For instance, a median filter
   /// or time-warping may be used.
+
+  /// \DONE Para el postprocesado hemos creado un filtro de mediana de 3 coeficientes
+  for (unsigned int i = 1; i < f0.size()-1; i++){
+    vector<float> aux;
+    aux.push_back(f0[i-1]);
+    aux.push_back(f0[i]);
+    aux.push_back(f0[i+1]);
+    std::sort (aux.begin(), aux.end());
+    f0[i] = aux[1];
+  }
 
   // Write f0 contour into the output file
   ofstream os(output_txt);
